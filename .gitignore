@@ -1,0 +1,65 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# Env
+.env
+*.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# DB
+*.sqlite3
+pgdata/
+db/backups/*.sql
+
+# Hero-camera demo clips (ingest/local_clips/*.mp4) are deliberately
+# COMMITTED, not ignored -- 3 Sept: so anyone on the team can clone and
+# run the hero-camera demo immediately without needing the sandbox
+# credential or re-recording against a flaky live RTSP source. See
+# ingest/local_clips/README.md for the exact files and sizes.
+#
+# Offline-verification extracts (regenerable: scan_hero_candidate.py
+# re-extracts from the clip in ~1 min) and pixel-crop evidence dirs
+ingest/local_clips/scan_*/
+# Transient live-stack pid/log files
+*_pid.txt
+ingest/ingest_live*.log
+ml/ml_live*.log
+
+# 4 Sept: runtime upload-storage dir created by api/app/routers/
+# camera_onboarding.py (pre-recorded video onboarding) -- real user
+# uploads at runtime, not source/fixture content.
+api/app/uploads/
+
+# deploy/ (cloud GPU bring-up): the real per-team credential and runtime
+# pid/log files -- never commit these. The scripts themselves are fine.
+deploy/stack.env
+deploy/logs/
+
+# --- rebuild-session additions ---
+kaggle.json
+ingest/local_clips/*.mp4
+ml_pid.txt
+ingest_pid.txt
+
+.claude/settings.local.json
+.pytest_cache/
+dist/

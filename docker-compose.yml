@@ -1,0 +1,63 @@
+version: "3.9"
+
+# SetuNetra — Integrated CCTV Registry, Unified Viewing & VMS Federation Platform.
+# AI/ML analytics have been removed for this build; the stack is Registry (Model 1),
+# Unified Viewing (Model 2) and VMS Federation (Model 3) + a cybersecurity layer.
+
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-setunetra}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: ${POSTGRES_DB:-setunetra}
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      # initdb runs these in order on a fresh volume: schema first, then the demo seed.
+      - ./contracts/schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+      - ./contracts/seed.sql:/docker-entrypoint-initdb.d/002_seed.sql:ro
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  api:
+    build: ./api
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      - db
+      - redis
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./api:/app
+
+  ingest:
+    build: ./ingest
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      - redis
+    volumes:
+      - ./ingest:/app
+
+  web:
+    build: ./web
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      - api
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+
+volumes:
+  db_data:

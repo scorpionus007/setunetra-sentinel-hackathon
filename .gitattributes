@@ -1,0 +1,3 @@
+# Shell scripts run on the Linux GPU box — force LF so a CRLF checkout on
+# Windows can never break them with a `bad interpreter: bash^M` error.
+*.sh text eol=lf
