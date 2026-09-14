@@ -1,43 +1,79 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { getCameraEvents, tagEvent, fetchSnapshot, activateCamera, getAlerts, updateAlert } from "../api";
 import { hasLevel } from "../auth";
-import { DeptTag, SeverityBadge, Flash, timeAgo } from "../ui";
+import { DeptTag, StatusBadge, SeverityBadge, Flash, timeAgo } from "../ui";
 
-// One live tile: polls the auth-gated snapshot; shows a frame when ingest delivers one.
-function LiveTile({ cam, canTag, onTag }) {
+// Poll the auth-gated snapshot into an object URL at a given cadence.
+function useLiveFrame(extId, intervalMs) {
   const [live, setLive] = useState(false);
   const [src, setSrc] = useState(null);
-
   useEffect(() => {
     let active = true;
     let current = null;
     const tick = async () => {
-      const url = await fetchSnapshot(cam.external_id);
+      const url = await fetchSnapshot(extId);
       if (!active) { if (url) URL.revokeObjectURL(url); return; }
-      if (url) {
-        if (current) URL.revokeObjectURL(current);
-        current = url;
-        setSrc(url); setLive(true);
-      } else { setLive(false); }
+      if (url) { if (current) URL.revokeObjectURL(current); current = url; setSrc(url); setLive(true); }
+      else setLive(false);
     };
     tick();
-    const id = setInterval(tick, 5000);
+    const id = setInterval(tick, intervalMs);
     return () => { active = false; clearInterval(id); if (current) URL.revokeObjectURL(current); };
-  }, [cam.external_id]);
+  }, [extId, intervalMs]);
+  return { live, src };
+}
 
+// One live tile — click the frame to open the maximised feed.
+function LiveTile({ cam, canTag, onTag, onOpen }) {
+  const { live, src } = useLiveFrame(cam.external_id, 5000);
   return (
     <div className="cam-tile">
-      <div className="cam-frame">
+      <div className="cam-frame" onClick={() => onOpen(cam)} style={{ cursor: "zoom-in" }} title="Click to expand">
         {src && live ? <img src={src} alt={cam.location_name} /> : (
           <div className="noimg"><span>{cam.status === "live" ? "Awaiting frame" : "No signal"}</span></div>
         )}
         <div className="cam-scanline" />
         <div className={`cam-livechip ${live ? "" : "off"}`}><span className="rec" />{live ? "LIVE" : "OFFLINE"}</div>
+        <div className="cam-expand">⤢ Expand</div>
       </div>
       <div className="cam-meta">
         <div className="nm">{cam.location_name}</div>
         <div className="sub">#{cam.external_id} · {cam.district || "—"} <DeptTag name={cam.department} /></div>
         {canTag && <button className="btn btn-sm" style={{ marginTop: 10, width: "100%" }} onClick={() => onTag(cam)}>Tag event</button>}
+      </div>
+    </div>
+  );
+}
+
+// Maximised single-feed viewer — larger window, faster refresh.
+function FeedModal({ cam, canTag, onClose, onTag }) {
+  const { live, src } = useLiveFrame(cam.external_id, 1000);
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal modal-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <h3>{cam.location_name}</h3>
+          <button className="close-x" onClick={onClose}>×</button>
+        </div>
+        <div className="modal-body">
+          <div className="cam-frame feed-frame">
+            {src && live ? <img src={src} alt={cam.location_name} /> : (
+              <div className="noimg"><span>{cam.status === "live" ? "Awaiting frame from ingest" : "No signal"}</span></div>
+            )}
+            <div className="cam-scanline" />
+            <div className={`cam-livechip ${live ? "" : "off"}`}><span className="rec" />{live ? "LIVE" : "OFFLINE"}</div>
+          </div>
+          <div className="feed-meta">
+            <span><span className="muted">Device</span> #{cam.external_id}</span>
+            <span><span className="muted">District</span> {cam.district || "—"}</span>
+            <DeptTag name={cam.department} />
+            <StatusBadge status={cam.status} />
+            <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+              {canTag && <button className="btn btn-sm" onClick={() => onTag(cam)}>Tag event</button>}
+              <button className="btn btn-sm" onClick={onClose}>Close</button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -50,6 +86,7 @@ export default function ViewingView({ cameras, user, onRefresh }) {
   const [flash, setFlash] = useState(null);
   const [tagCam, setTagCam] = useState(null);
   const [limit, setLimit] = useState(12);
+  const [openCam, setOpenCam] = useState(null);
 
   async function load() {
     const [e, a] = await Promise.all([getCameraEvents({ limit: 100 }), getAlerts()]);
@@ -85,7 +122,7 @@ export default function ViewingView({ cameras, user, onRefresh }) {
         </div>
         <div className="panel-body">
           <div className="cam-grid">
-            {gridCams.map((c) => <LiveTile key={c.id} cam={c} canTag={canTag} onTag={setTagCam} />)}
+            {gridCams.map((c) => <LiveTile key={c.id} cam={c} canTag={canTag} onTag={setTagCam} onOpen={setOpenCam} />)}
           </div>
           {cameras.length > limit && (
             <div style={{ textAlign: "center", marginTop: 18 }}>
@@ -145,6 +182,7 @@ export default function ViewingView({ cameras, user, onRefresh }) {
         </div>
       </div>
 
+      {openCam && <FeedModal cam={openCam} canTag={canTag} onClose={() => setOpenCam(null)} onTag={(c) => { setOpenCam(null); setTagCam(c); }} />}
       {tagCam && <TagModal camera={tagCam} onClose={() => setTagCam(null)} onDone={(msg) => { setTagCam(null); setFlash({ kind: "ok", msg }); load(); onRefresh && onRefresh(); }} />}
     </>
   );
