@@ -15,16 +15,24 @@ Env:
   INGEST_LOCAL_SOURCES    "extid=path;extid=path" — use a local file as a
                           camera's source instead of its RTSP url (for demo /
                           pipeline verification when the live grid is unreachable)
+  SENTINEL_EMAIL          approved-access email; injected into each rtsp:// url
+  SENTINEL_ACCESS_PASSWORD  access password; injected as the url password
+
+The Sentinel grid authenticates every RTSP connection with the registered email
++ access password embedded in the URL (rtsp://email:password@...). Credentials
+are read from the environment and injected at connect time — they are never
+stored in the registry, logged, or committed.
 """
 from __future__ import annotations
 
 import os
 import threading
 import time
+from urllib.parse import quote
 
 os.environ.setdefault(
     "OPENCV_FFMPEG_CAPTURE_OPTIONS",
-    f"rtsp_transport;tcp|stimeout;{int(float(os.environ.get('INGEST_OPEN_TIMEOUT', '8')) * 1_000_000)}",
+    f"rtsp_transport;tcp|stimeout;{int(float(os.environ.get('INGEST_OPEN_TIMEOUT', '20')) * 1_000_000)}",
 )
 
 import cv2
@@ -35,7 +43,23 @@ REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 DB_DSN = os.environ.get("INGEST_DB_DSN", "host=localhost dbname=setunetra user=setunetra password=changeme")
 INTERVAL = float(os.environ.get("INGEST_INTERVAL", "2.0"))
 JPEG_WIDTH = int(os.environ.get("INGEST_JPEG_WIDTH", "640"))
-FRAME_TTL = 12
+FRAME_TTL = int(os.environ.get("INGEST_FRAME_TTL", "90"))  # frames persist between rotation visits
+SENTINEL_EMAIL = os.environ.get("SENTINEL_EMAIL", "").strip()
+SENTINEL_PW = os.environ.get("SENTINEL_ACCESS_PASSWORD", "").strip()
+
+
+def _with_credentials(url: str) -> str:
+    """Embed the approved email + access password into an rtsp:// URL, exactly as
+    the Sentinel grid requires (rtsp://email:password@host...). Both are
+    percent-encoded (the '@' in an email must become %40). Non-rtsp URLs and URLs
+    that already carry credentials are returned unchanged. Secrets never touch the
+    DB or logs — they live only in this in-memory string handed to the decoder."""
+    if not url.lower().startswith("rtsp://") or not (SENTINEL_EMAIL and SENTINEL_PW):
+        return url
+    rest = url[len("rtsp://"):]
+    if "@" in rest.split("/", 1)[0]:  # already has userinfo
+        return url
+    return f"rtsp://{quote(SENTINEL_EMAIL, safe='')}:{quote(SENTINEL_PW, safe='')}@{rest}"
 
 r = redis.Redis.from_url(REDIS_URL)
 _db_lock = threading.Lock()
@@ -84,64 +108,83 @@ def _publish(ext_id: str, frame) -> bool:
     return True
 
 
-def _worker(ext_id: str, rtsp_url: str) -> None:
-    source = LOCAL_SOURCES.get(ext_id, rtsp_url)
-    is_local = not str(source).lower().startswith(("rtsp://", "http://", "https://"))
+FIRST_FRAME_TIMEOUT = float(os.environ.get("INGEST_FIRST_FRAME_TIMEOUT", "20"))
+MAX_CONCURRENT = int(os.environ.get("INGEST_MAX_CONCURRENT", "8"))
+DWELL = float(os.environ.get("INGEST_DWELL", "2.5"))
+
+
+def _capture_once(ext_id: str, source: str) -> bool:
+    """Open a feed, wait patiently for the first frame (the grid replays a
+    buffered GOP on connect, so it can take 15-20s), publish the freshest frame
+    seen over a short dwell window, then CLOSE — freeing the slot for the next
+    camera. This bounds concurrent streams (and CPU/bandwidth) to the pool size
+    while still refreshing every feed in rotation."""
     cap = None
-    online = None
-    fail = 0
-    while True:
+    try:
+        cap = cv2.VideoCapture(source, cv2.CAP_FFMPEG)
+        if not cap.isOpened():
+            raise RuntimeError("open failed")
         try:
-            if cap is None or not cap.isOpened():
-                if cap is not None:
-                    cap.release()
-                cap = cv2.VideoCapture(source, cv2.CAP_FFMPEG)
-                if not cap.isOpened():
-                    raise RuntimeError("open failed")
-            ok, frame = cap.read()
-            if not ok or frame is None:
-                if is_local:  # loop the file
-                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                    ok, frame = cap.read()
-                if not ok or frame is None:
-                    raise RuntimeError("read failed")
-            if _publish(ext_id, frame):
-                fail = 0
-                if online is not True:
-                    online = True
-                    _set_status(ext_id, "live", "Local sample source" if is_local else "Frames flowing")
-            time.sleep(INTERVAL)
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         except Exception:
-            fail += 1
-            if cap is not None:
-                cap.release()
-                cap = None
-            if online is not False and fail >= 2:
-                online = False
-                _set_status(ext_id, "down", "No frames — source unreachable")
-            time.sleep(min(15, 3 * fail))
+            pass
+        deadline = time.time() + FIRST_FRAME_TIMEOUT
+        latest = None
+        while time.time() < deadline:
+            ok, f = cap.read()
+            if ok and f is not None:
+                latest = f
+                break
+            time.sleep(0.2)
+        if latest is None:
+            raise RuntimeError("no first frame")
+        # dwell so we publish a current frame, not the replayed GOP head
+        end = time.time() + DWELL
+        while time.time() < end:
+            ok, f = cap.read()
+            if ok and f is not None:
+                latest = f
+            time.sleep(0.2)
+        _publish(ext_id, latest)
+        _set_status(ext_id, "live", "Frames flowing")
+        return True
+    except Exception:
+        _set_status(ext_id, "down", "No frames — feed unreachable")
+        return False
+    finally:
+        if cap is not None:
+            cap.release()
+
+
+_rot_lock = threading.Lock()
+
+
+def _pool_worker(rotation) -> None:
+    while True:
+        with _rot_lock:
+            ext_id, source = next(rotation)
+        _capture_once(ext_id, source)
+        time.sleep(0.15)
 
 
 def main() -> None:
+    import itertools
     cams = _load_cameras()
-    # In an environment that cannot reach the live grid, INGEST_ONLY_LOCAL=1
-    # runs just the locally-sourced cameras — so the pipeline is verifiable
-    # without churning on unreachable feeds or writing misleading 'down' status.
     if os.environ.get("INGEST_ONLY_LOCAL") == "1":
         cams = [(e, u) for (e, u) in cams if e in LOCAL_SOURCES]
-    print(f"[ingest] starting {len(cams)} camera workers "
-          f"({len(LOCAL_SOURCES)} local source(s)), interval={INTERVAL}s, no-ML")
-    threads = []
+    prepared = []
     for ext_id, url in cams:
-        t = threading.Thread(target=_worker, args=(ext_id, url), daemon=True, name=f"cam-{ext_id}")
-        t.start()
-        threads.append(t)
-        time.sleep(0.08)  # stagger connection setup
-    try:
-        while True:
-            time.sleep(3600)
-    except KeyboardInterrupt:
-        print("[ingest] stopping")
+        local = LOCAL_SOURCES.get(ext_id)
+        prepared.append((ext_id, local if local is not None else _with_credentials(url)))
+    pool = min(MAX_CONCURRENT, len(prepared)) or 1
+    print(f"[ingest] rotating pool — {len(prepared)} feeds, {pool} concurrent, "
+          f"dwell={DWELL}s, no-ML", flush=True)
+    rotation = itertools.cycle(prepared)
+    for _ in range(pool):
+        threading.Thread(target=_pool_worker, args=(rotation,), daemon=True).start()
+        time.sleep(0.3)
+    while True:
+        time.sleep(3600)
 
 
 if __name__ == "__main__":

@@ -103,7 +103,7 @@ INSERT INTO cameras (external_id, location_name, district, location, department_
 SELECT c.ext, c.name, c.district,
        ST_SetSRID(ST_MakePoint(c.lon, c.lat), 4326),
        d.id, c.ctype, c.prio, c.stier, c.cstatus, 'bulk',
-       'rtsp://103.250.160.189:8554/stream/cam' || lpad(COALESCE(substring(c.name from '^\s*(\d+)'), c.ext), 2, '0'),
+       'rtsp://103.250.160.189:8554/stream/cam' || lpad(c.ext, 2, '0'),
        CASE WHEN c.cstatus = 'down' THEN now() - interval '6 hours'
             WHEN c.cstatus = 'degraded' THEN now() - interval '25 minutes'
             ELSE now() - (abs(hashtext(c.ext)) % 90) * interval '1 second' END
