@@ -42,7 +42,12 @@ services:
     build: ./ingest
     restart: unless-stopped
     env_file: .env
+    environment:
+      # inside the compose network the DB/Redis are reachable by service name
+      REDIS_URL: redis://redis:6379/0
+      INGEST_DB_DSN: host=db dbname=${POSTGRES_DB:-setunetra} user=${POSTGRES_USER:-setunetra} password=${POSTGRES_PASSWORD:-changeme}
     depends_on:
+      - db
       - redis
     volumes:
       - ./ingest:/app
