@@ -28,7 +28,7 @@ export default function Landing({ onEnter }) {
 
       <header className="hero">
         <div className="hero-grid-bg" />
-        <div className="hero-inner">
+        <div className="hero-inner hero-single">
           <div className="reveal in">
             <div className="hero-badge">
               <span className="pin">Gujarat Police</span>
@@ -49,37 +49,6 @@ export default function Landing({ onEnter }) {
               <div className="hero-stat"><div className="n"><Counter value="10" /></div><div className="l">Districts covered</div></div>
               <div className="hero-stat"><div className="n"><Counter value="5" /></div><div className="l">Departments</div></div>
             </div>
-          </div>
-
-          <div className="hero-mock reveal in">
-            <div className="mock-window">
-              <div className="mock-top tricolour" />
-              <div className="mock-topbar">
-                <span className="mock-dot" style={{ background: "#e57373" }} />
-                <span className="mock-dot" style={{ background: "#ffb74d" }} />
-                <span className="mock-dot" style={{ background: "#81c784" }} />
-                <span style={{ marginLeft: 8 }}>Network Health · Live</span>
-              </div>
-              <div className="mock-body">
-                <div className="mock-row">
-                  <div className="mock-kpi g"><div className="k">Online</div><div className="v" style={{ color: "#138808" }}>26</div></div>
-                  <div className="mock-kpi"><div className="k">Offline</div><div className="v" style={{ color: "#c62828" }}>4</div></div>
-                  <div className="mock-kpi n"><div className="k">Alerts</div><div className="v" style={{ color: "#0a1f4d" }}>7</div></div>
-                </div>
-                <div className="mock-panel">
-                  <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 10 }}>Device registry</div>
-                  {["#ff9933", "#0a1f4d", "#138808", "#ff9933"].map((c, i) => (
-                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 9, margin: "9px 0" }}>
-                      <span style={{ width: 8, height: 8, borderRadius: 3, background: c }} />
-                      <div className="mock-line" style={{ flex: 1, width: `${72 - i * 8}%` }} />
-                      <span style={{ width: 34, height: 7, borderRadius: 4, background: "#e6f4e4" }} />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-            <div className="float-card float-a s"><div className="fc-t">Uptime</div><div className="fc-n">86.7%</div></div>
-            <div className="float-card float-b"><div className="fc-t">Federated VMS</div><div className="fc-n">5 vendors</div></div>
           </div>
         </div>
       </header>

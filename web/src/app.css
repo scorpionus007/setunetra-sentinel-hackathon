@@ -109,6 +109,11 @@ button { font-family: inherit; cursor: pointer; }
 .hero-cta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .hero-stats { display: flex; gap: 0; margin-top: 46px; }
 .hero-stat { padding-right: 34px; } .hero-stat + .hero-stat { padding-left: 34px; border-left: 1px solid var(--border); }
+/* single-column centered hero (no mock) */
+.hero-inner.hero-single { grid-template-columns: 1fr; max-width: 900px; margin-inline: auto; text-align: center; }
+.hero-single .hero-sub { margin-left: auto; margin-right: auto; }
+.hero-single .hero-cta { justify-content: center; }
+.hero-single .hero-stats { justify-content: center; margin-top: 40px; }
 .hero-stat .n { font-family: "Libre Franklin"; font-size: 34px; font-weight: 800; color: var(--navy); letter-spacing: -0.02em; }
 .hero-stat .l { font-size: 12.5px; color: var(--muted); margin-top: 3px; }
 
