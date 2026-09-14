@@ -112,10 +112,12 @@ FIRST_FRAME_TIMEOUT = float(os.environ.get("INGEST_FIRST_FRAME_TIMEOUT", "25"))
 LOST_TIMEOUT = float(os.environ.get("INGEST_LOST_TIMEOUT", "15"))
 # The grid enforces a per-account CONCURRENT-STREAM cap; opening more than it
 # allows gets the whole account temporarily rejected. So we hold at most
-# MAX_CONCURRENT streams at once (well under the cap) and rotate through the rest,
-# holding each live for HOLD_SECONDS before releasing its slot to the next camera.
+# MAX_CONCURRENT streams at once (well under the cap). Each feed is held live for
+# HOLD_SECONDS — long by default, so the live set stays STABLE rather than
+# flickering in and out; a slot only rotates to the next camera when a feed drops
+# (self-healing). Raise MAX_CONCURRENT toward the cap on a stronger host/account.
 MAX_CONCURRENT = int(os.environ.get("INGEST_MAX_CONCURRENT", "8"))
-HOLD_SECONDS = float(os.environ.get("INGEST_HOLD_SECONDS", "90"))
+HOLD_SECONDS = float(os.environ.get("INGEST_HOLD_SECONDS", "3600"))
 
 from collections import deque  # noqa: E402
 
